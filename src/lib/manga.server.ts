@@ -7,7 +7,7 @@ const PIXAZO_URL = "https://gateway.pixazo.ai/flux-1-schnell/v1/getData";
 // Generation can legitimately take minutes when the renderer is busy. A short
 // deadline used to kill healthy renders at 60s and made long runs look stuck,
 // so this is only a very generous safety net, never a fast-fail.
-const IMAGE_REQUEST_TIMEOUT_MS = 600_000;
+const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 
 /**
  * Renderer-only art direction. The writing model describes only scene content;
@@ -1156,7 +1156,7 @@ const MIN_IMAGE_BYTES = 40_000;
  * entropy maths, no end-of-file probing — those were the slow part.
  */
 async function isRealImage(url: string): Promise<boolean> {
-  const gate = killableSignal(45_000);
+  const gate = killableSignal(20_000);
   try {
     const res = await fetch(url, { method: "HEAD", signal: gate.signal });
     if (!res.ok) return true; // can't tell — keep the panel
