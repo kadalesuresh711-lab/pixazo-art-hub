@@ -1330,12 +1330,14 @@ export async function renderPanel(
   const rewritten = false;
   void timestamp;
 
-  // The prompt as written for this line, retried in full on fresh seeds.
+  // Stage 1 — the prompt exactly as written, retried in full on fresh seeds and
+  // fresh keys. Each round itself retries inside generateImage, so a busy or
+  // flaky renderer is worked through instead of failing the panel.
   let refused = false;
   for (let round = 0; round < 3; round++) {
     tries++;
     try {
-      const url = await generateImage(prompt, seed + round * 1861, slot + round, bible, 1, line);
+      const url = await generateImage(prompt, seed + round * 1861, slot + round, bible, 3, line);
       return { url, prompt, level: 0, tries, rewritten };
     } catch (e) {
       if (e instanceof KilledError) throw e;
@@ -1343,25 +1345,52 @@ export async function renderPanel(
       errors.push(`round ${round + 1}: ${msg}`);
       if (contentRefusal(msg)) refused = true;
     }
-    await pause(250 * (round + 1));
+    await pause(400 * (round + 1));
   }
 
-  // Only a content refusal earns a rewrite, and only softening — same scene,
-  // same length, refused wording replaced.
-  if (refused) {
-    const softened = promptVariant(prompt, 1, line);
-    if (softened && softened !== prompt) {
-      for (let round = 0; round < 1; round++) {
-        tries++;
-        try {
-          const url = await generateImage(softened, seed + 5471 + round * 977, slot + round, bible, 1, line);
-          return { url, prompt: softened, level: 1, tries, rewritten };
-        } catch (e) {
-          if (e instanceof KilledError) throw e;
-          errors.push(`softened ${round + 1}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        await pause(300 * (round + 1));
+  // Stage 2 — softened wording (same scene, same length). Tried whenever the
+  // full prompt could not be rendered, not only on an explicit refusal: a free
+  // renderer often reports a content block as a plain failure.
+  const softened = promptVariant(prompt, 1, line);
+  if (softened && softened !== prompt) {
+    for (let round = 0; round < (refused ? 3 : 2); round++) {
+      tries++;
+      try {
+        const url = await generateImage(
+          softened,
+          seed + 5471 + round * 977,
+          slot + round,
+          bible,
+          3,
+          line,
+        );
+        return { url, prompt: softened, level: 1, tries, rewritten };
+      } catch (e) {
+        if (e instanceof KilledError) throw e;
+        errors.push(`softened ${round + 1}: ${e instanceof Error ? e.message : String(e)}`);
       }
+      await pause(500 * (round + 1));
+    }
+  }
+
+  // Stage 3 — last resort: the same scene rendered in the plainest possible
+  // wording, so a panel is produced rather than a hole in the story.
+  const plain = sanitizePrompt(softened || prompt)
+    .replace(/["'“”‘’]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 900);
+  if (plain.length >= 20) {
+    for (let round = 0; round < 3; round++) {
+      tries++;
+      try {
+        const url = await generateImage(plain, seed + 9109 + round * 613, slot + round, bible, 3, line);
+        return { url, prompt: plain, level: 2, tries, rewritten };
+      } catch (e) {
+        if (e instanceof KilledError) throw e;
+        errors.push(`plain ${round + 1}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      await pause(600 * (round + 1));
     }
   }
 
